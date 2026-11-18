@@ -55,7 +55,7 @@ def find_shell() -> tuple[str, list[str]]:
 
 
 def get_runtime_environment(extra_paths: list[str]) -> dict[str, str]:
-    """Build a complete execution environment including venv python and git tools."""
+    """Build a complete execution environment including venv python, git tools, and gh CLI."""
     env = os.environ.copy()
 
     # Prepend virtualenv Scripts directory so `python` and `pip` use the project venv
@@ -65,6 +65,12 @@ def get_runtime_environment(extra_paths: list[str]) -> dict[str, str]:
         path_entries.append(venv_scripts)
 
     path_entries.extend(extra_paths)
+
+    # GitHub CLI (gh.exe) — standard install location on Windows
+    gh_dir = os.path.join(os.environ.get("ProgramFiles", "C:\\Program Files"), "GitHub CLI")
+    if os.path.isdir(gh_dir):
+        path_entries.append(gh_dir)
+
     path_entries.append(env.get("PATH", ""))
 
     env["PATH"] = os.pathsep.join(path_entries)
