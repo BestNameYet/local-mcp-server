@@ -1,45 +1,45 @@
 {
   "title": "Local Python MCP Server Architecture, Endpoints, and Operational Reference",
-  "applicability": "Apply to any human operator, external AI agent, or MCP client connecting to, starting, verifying, or calling tools on the local-mcp-server runtime hosted on Windows 11 and exposed through a Cloudflare Named Tunnel. For repository code-editing rules, defer to AGENTS.md.",
+  "applicability": "Apply to any human operator, external AI agent, or MCP client connecting to, starting, verifying, or calling tools on the local-mcp-server runtime hosted in WSL2 Ubuntu and exposed through a Cloudflare Named Tunnel. All alias tokens (such as PUBLIC_MCP_ENDPOINT and WSL_REPO_DIR) resolve to the values defined in server_config.json. For repository code-editing rules, defer to AGENTS.md.",
   "definitions": {
-    "local_mcp_server": "A local FastMCP server running on Windows via Uvicorn at http://127.0.0 and exposed publicly at https://dpdns.org.",
+    "server_config_alias": "A symbolic key defined under 'aliases' in server_config.json that maps to a fixed network endpoint, tunnel identifier, WSL2 filesystem path, or launcher script.",
+    "local_mcp_server": "A local FastMCP server running inside WSL2 Ubuntu via Uvicorn at LOCAL_MCP_ENDPOINT and exposed publicly at PUBLIC_MCP_ENDPOINT.",
     "agent_id": "The unique string identifier representing a caller session (passed via the agent_id tool parameter, the user_id parameter on channel operations, or the X-Agent-ID HTTP header).",
     "piggybacked_channel_inbox": "The server-side zero-polling delivery mechanism that inspects all channels subscribed to by the caller's agent_id during any tool invocation, extracts unread messages, appends them to the tool response, and advances the caller's read cursor in a single turn.",
     "registered_channel": "A persistent SQLite-backed communication channel explicitly created via channel(action='create', channel_id='...'). Operations targeting unregistered channel_ids fail immediately with CHANNEL_NOT_FOUND."
   },
   "environment_and_network_topology": {
-    "applicability": "Connecting MCP clients, configuring local runtime environment variables, or inspecting Cloudflare Tunnel routing.",
+    "applicability": "Connecting MCP clients, configuring local runtime environment variables, or inspecting Cloudflare Tunnel routing via server_config.json aliases.",
+    "alias_source": "server_config.json",
     "endpoints": {
       "public_cloudflare_tunnel": {
-        "url": "https://dpdns.org",
+        "endpoint_alias": "PUBLIC_MCP_ENDPOINT",
         "purpose": "Public internet streamable HTTP endpoint for remote MCP clients and AI agents (such as Claude Desktop, ChatGPT, or Cursor).",
-        "client_configuration_example": {
+        "client_configuration_template": {
           "mcpServers": {
             "local-windows-mcp": {
-              "url": "https://dpdns.org"
+              "url": "<resolve aliases.PUBLIC_MCP_ENDPOINT from server_config.json>"
             }
           }
         }
       },
       "local_loopback": {
-        "url": "http://127.0.0",
-        "purpose": "Local streamable HTTP endpoint running directly on the host laptop."
+        "endpoint_alias": "LOCAL_MCP_ENDPOINT",
+        "purpose": "Local streamable HTTP endpoint bound to LOCAL_BIND_HOST:LOCAL_BIND_PORT inside WSL2."
       }
     },
     "cloudflare_tunnel_specification": {
-      "public_hostname": "mcp.x9zk7mp4vn8w.dpdns.org",
-      "tunnel_id": "30664c83-c67c-4f6f-a8ad-3416fbd3802a",
-      "local_ingress_rule": "Routes traffic from mcp.x9zk7mp4vn8w.dpdns.org to http://127.0.0.1:8000.",
-      "config_file_path": "C:\\Users\\samue\\.cloudflared\\config.yml",
-      "credentials_file_path": "C:\\Users\\samue\\.cloudflared\\30664c83-c67c-4f6f-a8ad-3416fbd3802a.json"
+      "public_hostname_alias": "CLOUDFLARE_HOSTNAME",
+      "tunnel_id_alias": "CLOUDFLARE_TUNNEL_ID",
+      "local_ingress_rule": "Routes traffic from CLOUDFLARE_HOSTNAME to http://LOCAL_BIND_HOST:LOCAL_BIND_PORT inside WSL2."
     },
     "dotenv_configuration": {
-      "applicability": "Automatic runtime configuration loading from the repository .env file at server startup.",
+      "applicability": "Automatic runtime configuration loading from the repository .env file inside WSL_REPO_DIR at server startup.",
       "variables": {
-        "HOST": "127.0.0.1",
-        "PORT": "8000",
-        "CLOUDFLARE_TUNNEL_URL": "https://dpdns.org",
-        "CLOUDFLARE_TUNNEL_NAME": "30664c83-c67c-4f6f-a8ad-3416fbd3802a"
+        "HOST": "LOCAL_BIND_HOST",
+        "PORT": "LOCAL_BIND_PORT",
+        "CLOUDFLARE_TUNNEL_URL": "PUBLIC_MCP_ENDPOINT",
+        "CLOUDFLARE_TUNNEL_NAME": "CLOUDFLARE_TUNNEL_ID"
       }
     }
   },
@@ -82,6 +82,18 @@
         "applicability": "Retrieving all unread messages across all channels to which the caller agent_id is currently subscribed and marking them as delivered.",
         "parameters": {
           "agent_id": "Required string identifying the agent requesting its inbox."
+        },
+        "example_request": {
+          "jsonrpc": "2.0",
+          "id": 1,
+          "method": "tools/call",
+          "params": {
+            "name": "channel",
+            "arguments": {
+              "action": "inbox",
+              "agent_id": "coder-1"
+            }
+          }
         }
       },
       {
@@ -91,6 +103,19 @@
           "channel_id": "Required unique string identifier for the channel.",
           "description": "Optional string describing the purpose or topic of the channel.",
           "user_id": "Optional string identifying the creator agent or user."
+        },
+        "example_request": {
+          "jsonrpc": "2.0",
+          "id": 1,
+          "method": "tools/call",
+          "params": {
+            "name": "channel",
+            "arguments": {
+              "action": "create",
+              "channel_id": "general",
+              "description": "Cross-agent project coordination"
+            }
+          }
         }
       },
       {
@@ -98,6 +123,17 @@
         "applicability": "Listing all registered channels, their subscriber counts, and message statistics.",
         "parameters": {
           "user_id": "Optional string agent ID; when provided, the response includes is_user_subscribed status for each listed channel."
+        },
+        "example_request": {
+          "jsonrpc": "2.0",
+          "id": 2,
+          "method": "tools/call",
+          "params": {
+            "name": "channel",
+            "arguments": {
+              "action": "list"
+            }
+          }
         }
       },
       {
@@ -107,6 +143,20 @@
           "channel_id": "Required string matching an existing registered channel (fails with CHANNEL_NOT_FOUND otherwise).",
           "user_id": "Required string agent or user identifier to subscribe or unsubscribe.",
           "subscribed": "Required boolean specifying subscription state: pass true to subscribe and join the channel, or pass false to unsubscribe and leave the channel."
+        },
+        "example_request": {
+          "jsonrpc": "2.0",
+          "id": 3,
+          "method": "tools/call",
+          "params": {
+            "name": "channel",
+            "arguments": {
+              "action": "subscribe",
+              "channel_id": "general",
+              "user_id": "agent-1",
+              "subscribed": true
+            }
+          }
         }
       },
       {
@@ -116,6 +166,20 @@
           "channel_id": "Required string identifying the registered channel.",
           "user_id": "Required string identifying the subscribed sender agent.",
           "message": "Required string containing the message text to broadcast."
+        },
+        "example_request": {
+          "jsonrpc": "2.0",
+          "id": 4,
+          "method": "tools/call",
+          "params": {
+            "name": "channel",
+            "arguments": {
+              "action": "write",
+              "channel_id": "general",
+              "user_id": "agent-1",
+              "message": "Task complete: Analyzed system logs. Ready for review."
+            }
+          }
         }
       },
       {
@@ -124,26 +188,60 @@
         "parameters": {
           "channel_id": "Required string identifying the registered channel.",
           "user_id": "Required string identifying the subscribed reader agent.",
-          "i": "Optional integer specifying maximum number of messages to retrieve (defaults to 10).",
-          "flag": "Optional string retrieval mode: pass 'new' (default) to retrieve only unread messages since the last read and advance the read cursor, or pass 'new+old' to retrieve the latest i messages including past history."
-        }
-      }
-    ]
-  },
-  "startup_and_verification_procedures": {
-    "one_click_boot": {
-      "applicability": "Starting the local server, Cloudflare Tunnel, and status verification dashboard from Windows Command Prompt or PowerShell.",
-      "command": ".\\start_server.bat",
-      "required_behavior": "Execute start_server.bat (or boot.bat) to print live progress and the Salient Status Dashboard to the interactive terminal, launch cloudflared.exe, open a companion console window for uvicorn with --reload enabled, execute verify_server.py to test and display all 8 salient statuses (TCP sockets, local and remote MCP handshakes, tool listing, tool execution, and channel operations), and pause with 'Press any key to exit...' so statuses remain visible for inspection."
-    },
-    "standalone_verification": {
-      "applicability": "Verifying the running server and endpoints at any time without restarting processes.",
-      "command": ".\\.venv\\Scripts\\python.exe verify_server.py",
-      "outcome_verification": "Verification succeeds when verify_server.py reports passing results across all 8 salient status checks for both local loopback and public Cloudflare Tunnel endpoints."
-    }
-  },
-  "governance_cross_reference": {
-    "applicability": "Anyone intending to modify source files, add tools, or change dependencies in this repository.",
-    "required_behavior": "Consult AGENTS.md for all architectural invariants, hardware memory guardrails, security boundaries, and pre-commit verification rules before editing repository code."
-  }
+Use code with caution.
+"i": "Optional integer specifying maximum number of messages to retrieve (defaults to 10).",
+"flag": "Optional string retrieval mode: pass 'new' (default) to retrieve only unread messages since the last read and advance the read cursor, or pass 'new+old' to retrieve the latest i messages including past history."
+},
+"example_request": {
+"jsonrpc": "2.0",
+"id": 5,
+"method": "tools/call",
+"params": {
+"name": "channel",
+"arguments": {
+"action": "read",
+"channel_id": "general",
+"user_id": "agent-2",
+"i": 5,
+"flag": "new"
+}
+}
+},
+"example_response": {
+"status": "success",
+"action": "read",
+"channel_id": "general",
+"user_id": "agent-2",
+"mode": "new",
+"count": 1,
+"remaining_unread": 0,
+"messages": [
+{
+"message_id": 1,
+"sender": "agent-1",
+"message": "Task complete: Analyzed system logs. Ready for review.",
+"created_at": "2026-11-18T20:10:00.000000+00:00",
+"is_new": true
+}
+]
+}
+}
+]
+},
+"startup_and_verification_procedures": {
+"one_click_boot": {
+"applicability": "Starting the WSL2 Uvicorn server, WSL2 Cloudflare Tunnel, and status verification dashboard from Windows.",
+"script_alias": "WINDOWS_BOOT_SCRIPT",
+"required_behavior": "Run WINDOWS_BOOT_SCRIPT on Windows to stop existing Uvicorn and cloudflared processes, launch UVICORN_ASGI_APP via WSL_PYTHON_BIN inside WSL_REPO_DIR (logging to WSL_UVICORN_LOG), launch cloudflared tunnel run CLOUDFLARE_TUNNEL_ID in WSL2, and execute VERIFY_SCRIPT."
+},
+"standalone_verification": {
+"applicability": "Verifying the running WSL2 server and endpoints at any time without restarting processes.",
+"command_template": "<WSL_PYTHON_BIN> <VERIFY_SCRIPT>",
+"outcome_verification": "Verification succeeds when VERIFY_SCRIPT reports passing results across all salient status checks for both LOCAL_MCP_ENDPOINT and PUBLIC_MCP_ENDPOINT."
+}
+},
+"governance_cross_reference": {
+"applicability": "Anyone intending to modify source files, add tools, or change dependencies in this repository.",
+"required_behavior": "Consult AGENTS.md for all architectural invariants, hardware memory guardrails, security boundaries, and pre-commit verification rules before editing repository code."
+}
 }
