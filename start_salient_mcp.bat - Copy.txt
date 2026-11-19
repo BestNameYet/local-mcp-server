@@ -1,0 +1,47 @@
+@echo off
+setlocal EnableDelayedExpansion
+title Salient MCP Server ^& Cloudflare Tunnel Launcher (WSL2)
+
+:: --- EXACT WSL2 CONFIGURATION ---
+set "MCP_DIR=/home/samue/local-mcp-server"
+set "PYTHON_BIN=/home/samue/local-mcp-server/.venv/bin/python"
+set "UVICORN_APP=server:app"
+set "HOST=127.0.0.1"
+set "PORT=8000"
+set "TUNNEL_ID=30664c83-c67c-4f6f-a8ad-3416fbd3802a"
+set "VERIFY_SCRIPT=verify_server.py"
+
+echo ============================================================================
+echo   LAUNCHING SALIENT MCP SERVER ^& CLOUDFLARE TUNNEL IN WSL2
+echo ============================================================================
+
+:: 1. Stop any leftover Windows cloudflared instances to prevent tunnel conflicts
+echo [1/4] Cleaning up any Windows cloudflared processes...
+taskkill /F /IM cloudflared.exe >nul 2>&1
+
+:: 2. Restart Uvicorn MCP Server inside WSL2
+echo [2/4] Starting Uvicorn MCP Server inside WSL2 (%HOST%:%PORT%)...
+wsl -- bash -lc "pkill -f 'uvicorn %UVICORN_APP%' || true; cd %MCP_DIR% && setsid %PYTHON_BIN% -m uvicorn %UVICORN_APP% --host %HOST% --port %PORT% --reload > /tmp/uvicorn_mcp.log 2>&1 < /dev/null &"
+
+:: 3. Restart Cloudflare Tunnel inside WSL2 over HTTP/2 + IPv4
+echo [3/4] Starting Cloudflare Tunnel (%TUNNEL_ID%) inside WSL2...
+wsl -- bash -lc "pkill -f 'cloudflared tunnel' || true; setsid cloudflared tunnel --protocol http2 --edge-ip-version 4 run %TUNNEL_ID% > /tmp/cloudflared.log 2>&1 < /dev/null &"
+
+:: 4. Wait for tunnel edge registration and run verification dashboard
+echo [4/4] Waiting 4 seconds for Cloudflare Edge registration...
+timeout /t 4 /nobreak >nul
+
+echo.
+wsl -- bash -lc "cd %MCP_DIR% && %PYTHON_BIN% %VERIFY_SCRIPT%"
+
+if %ERRORLEVEL% NEQ 0 (
+    echo.
+    echo [ERROR] Verification failed. Recent logs:
+    echo --- /tmp/uvicorn_mcp.log ---
+    wsl -- bash -lc "tail -n 10 /tmp/uvicorn_mcp.log"
+    echo --- /tmp/cloudflared.log ---
+    wsl -- bash -lc "tail -n 15 /tmp/cloudflared.log"
+)
+
+echo.
+pause
