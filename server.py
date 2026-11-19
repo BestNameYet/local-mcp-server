@@ -1,15 +1,17 @@
+import asyncio
 from datetime import datetime, timezone
-import json
 from typing import Optional
 from fastmcp import FastMCP
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 from tools.channel import (
     channel as channel_impl,
     format_with_inbox,
-    handle_inbox,
 )
 from tools.terminal import execute_bash
 
 mcp = FastMCP("LocalWindowsMCP")
+_BRIDGE_TOKEN = "CHANGE_ME_TO_A_RANDOM_SECRET_123"
 
 
 @mcp.tool
@@ -31,32 +33,7 @@ def bash(
     agent_id: Optional[str] = None,
     timeout: Optional[float] = 60.0,
 ) -> str:
-    """Execute a bash/shell command on the laptop runtime environment.
-
-    This tool gives agents a full bash terminal emulator backed by the GitHub Desktop
-    bundled Git/POSIX toolchain (sh, git, python, grep, sed, awk, ls, find, etc.).
-    The working directory defaults to the project repository root.
-    GitHub serves as the persistent filesystem: agents can clone, commit, push, pull,
-    and branch, making it both a runtime and durable storage layer.
-
-    Use this tool for:
-    - Running scripts: 'python my_script.py', 'pytest tests/'
-    - Git operations: 'git status', 'git add .', 'git commit -m "..."', 'git push'
-    - File inspection: 'ls -la', 'cat README.md', 'grep -r "pattern" .'
-    - Multi-command pipelines: 'git log --oneline -5 | grep feat'
-    - Installing packages: 'pip install requests'
-    - Reading/writing files: 'echo "content" > file.txt', 'cat file.txt'
-
-    Args:
-        command: The bash/shell command string to execute.
-        cwd: Optional working directory relative to repository root (stays inside repo).
-        agent_id: Optional agent identifier. Unread channel messages will be piggybacked
-                  onto this response (or pass via 'X-Agent-ID' HTTP header).
-        timeout: Max execution time in seconds (default 60, max 90).
-
-    Returns:
-        Terminal output including exit code, stdout, stderr, and any piggybacked channel inbox.
-    """
+    """Execute a bash/shell command on the laptop runtime environment."""
     return execute_bash(command=command, cwd=cwd, agent_id=agent_id, timeout=timeout)
 
 
@@ -72,53 +49,7 @@ def channel(
     flag: Optional[str] = "new",
     description: Optional[str] = None,
 ) -> str:
-    """Common Application Namespace for Cross-Agent Communication Channels.
-
-    Use this tool to communicate between ChatGPT sessions, agents, or users.
-    Only channels that have been explicitly created/registered are valid.
-    Any operation on an unregistered channel fails.
-    Subscribing an agent ID inherently registers it for that channel.
-    Unsubscribed agents are blocked from writing or reading.
-
-    Supported Actions:
-    1. 'inbox' (or 'unread'):
-       - Retrieve all unread messages across ALL channels this agent is subscribed to.
-       - Requires: agent_id or user_id (or pass 'X-Agent-ID' header).
-    2. 'create' (or 'register'):
-       - Register a new valid channel.
-       - Requires: channel_id (str). Optional: description (str), agent_id (str).
-    3. 'list' (or 'list_channels'):
-       - List all created/registered channels and subscriber counts.
-       - Optional: agent_id (str).
-    4. 'subscribe':
-       - Subscribe (and register) an agent to a valid channel, or unsubscribe.
-       - Requires: channel_id (str), agent_id (str), subscribed (bool).
-       - Fails if channel does not exist.
-    5. 'write':
-       - Post a message to a channel.
-       - Requires: channel_id (str), agent_id (str), message (str).
-       - Fails if channel does not exist or agent is not subscribed.
-    6. 'read':
-       - Read messages from a channel.
-       - Requires: channel_id (str), agent_id (str).
-       - Optional: i (int, max messages, default 10).
-       - Optional: flag (str, 'new' [default] or 'new+old').
-       - Fails if channel does not exist or agent is not subscribed.
-
-    Args:
-        action: The operation: 'inbox', 'create', 'list', 'subscribe', 'write', or 'read'.
-        channel_id: The target channel identifier.
-        user_id: Agent identifier (alias for agent_id).
-        agent_id: Agent identifier for authentication and unread message delivery.
-        subscribed: Required boolean for 'subscribe' (True to join, False to leave).
-        message: Required string for 'write'.
-        i: Max messages for 'read' (default 10).
-        flag: Filter for 'read': 'new' (default) or 'new+old'.
-        description: Optional description when creating a channel.
-
-    Returns:
-        JSON string containing status, confirmation, or message data.
-    """
+    """Common Application Namespace for Cross-Agent Communication Channels."""
     return channel_impl(
         action=action,
         channel_id=channel_id,
@@ -132,5 +63,32 @@ def channel(
     )
 
 
-# Expose a standard ASGI app for Uvicorn at /mcp (Streamable HTTP)
+@mcp.custom_route("/bridge/exec", methods=["POST"])
+async def bridge_exec(request: Request):
+    host = request.headers.get("host", "")
+    if not (host.startswith("localhost:") or host.startswith("127.0.0.1:")):
+        return JSONResponse({"detail": "Local loopback only"}, status_code=403)
+    if request.headers.get("x-bridge-token") != _BRIDGE_TOKEN:
+        return JSONResponse({"detail": "Invalid bridge token"}, status_code=401)
+    body = await request.json()
+    raw = body.get("code", "")
+    lang = body.get("lang", "bash").lower()
+    clean = raw.replace("\r\n", "\n").replace("\r", "").strip()
+    cmd = ["python3", "-c", clean] if "python" in lang else ["bash", "-c", clean]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        out_b, err_b = await asyncio.wait_for(proc.communicate(), timeout=30)
+        out, err = out_b.decode(errors="replace"), err_b.decode(errors="replace")
+        if out:
+            print(f"\n--- [BRIDGE STDOUT] ---\n{out.strip()}", flush=True)
+        if err:
+            print(f"\n--- [BRIDGE STDERR] ---\n{err.strip()}", flush=True)
+        return JSONResponse({"returncode": proc.returncode, "stdout": out, "stderr": err})
+    except asyncio.TimeoutError:
+        proc.kill()
+        return JSONResponse({"returncode": -1, "stdout": "", "stderr": "Execution timed out (30s)"})
+
+
 app = mcp.http_app(stateless_http=True)
