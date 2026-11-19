@@ -21,7 +21,12 @@ MAX_OUTPUT_LENGTH = 50_000
 
 
 def find_shell() -> tuple[str, list[str]]:
-    """Locate the best bash/sh executable and required PATH directories on Windows."""
+    """Locate the best bash/sh executable and required PATH directories."""
+    if os.name != "nt":
+        for posix_sh in ["/usr/bin/bash", "/bin/bash", "/bin/sh"]:
+            if os.path.isfile(posix_sh):
+                return posix_sh, []
+        return "bash", []
     # 1. Check for bundled Git/Bash in GitHub Desktop
     local_app_data = os.environ.get("LOCALAPPDATA", "")
     if local_app_data:
@@ -59,7 +64,7 @@ def get_runtime_environment(extra_paths: list[str]) -> dict[str, str]:
     env = os.environ.copy()
 
     # Prepend virtualenv Scripts directory so `python` and `pip` use the project venv
-    venv_scripts = str(WORKSPACE_DIR / ".venv" / "Scripts")
+    venv_scripts = str(WORKSPACE_DIR / ".venv" / ("Scripts" if os.name == "nt" else "bin"))
     path_entries = []
     if os.path.isdir(venv_scripts):
         path_entries.append(venv_scripts)
