@@ -1,333 +1,149 @@
-# Local Python MCP Server
-
-This repository powers a local [FastMCP](https://gofastmcp.com/) server running on Windows via Uvicorn and exposed through a Cloudflare Named Tunnel.
-
----
-
-## Active Endpoints
-
-| Environment | Endpoint URL | Description |
-|---|---|---|
-| **Public (Cloudflare Tunnel)** | `https://mcp.x9zk7mp4vn8w.dpdns.org/mcp` | Public internet endpoint for remote MCP clients & AI agents. |
-| **Local (Loopback)** | `http://127.0.0.1:8000/mcp` | Local streamable HTTP endpoint running on your laptop. |
-
-### Cloudflare Tunnel Details
-* **Public Hostname:** `mcp.x9zk7mp4vn8w.dpdns.org`
-* **Tunnel ID:** `30664c83-c67c-4f6f-a8ad-3416fbd3802a`
-* **Local Ingress Rule:** `mcp.x9zk7mp4vn8w.dpdns.org` -> `http://127.0.0.1:8000`
-* **Config File:** `C:\Users\samue\.cloudflared\config.yml`
-* **Credentials:** `C:\Users\samue\.cloudflared\30664c83-c67c-4f6f-a8ad-3416fbd3802a.json`
-
----
-
-## Zero-Polling Architecture: Piggybacked Channel Inbox
-
-In autonomous agent environments, polling loops waste LLM tokens, compute, and turns. This server eliminates polling through **passive message piggybacking**:
-
-1. **Every tool accepts an optional `agent_id` parameter** (or an `X-Agent-ID` HTTP header):
-   * When an agent invokes *any* tool (e.g. `ping`, `add_numbers`, `channel`, etc.) and provides its `agent_id`, the server automatically identifies the caller.
-   * If there are unread messages across **any** channels the agent is subscribed to, the server automatically extracts and appends them directly to the tool's response.
-   * The agent receives both its intended tool output and all incoming channel messages in a **single turn**, advancing its read cursors automatically.
-2. **Dedicated Inbox Action (`action="inbox"`):**
-   * If an agent needs to explicitly check for updates without executing another tool, it can call `channel(action="inbox", agent_id="...")`.
-
----
-
-## Cross-Agent Communication Channels
-
-This server includes a persistent, SQLite-backed **Communication Channel Abstraction** designed specifically to enable cross-agent messaging between different ChatGPT sessions (browser/desktop) or autonomous agents.
-
-### Unified Application Namespace: `channel`
-
-All communication methods can be invoked via the unified `channel` tool using the `action` parameter:
-
-```python
-channel(
-    action="inbox" | "create" | "list" | "subscribe" | "write" | "read",
-    channel_id="...",           # Target channel
-    agent_id="...",             # Agent identifier (or user_id)
-    description="...",          # Optional for 'create': channel description
-    subscribed=True | False,    # Required for 'subscribe': registration toggle
-    message="...",              # Required for 'write': message string
-    i=10,                       # Optional for 'read': max messages (default 10)
-    flag="new" | "new+old"      # Optional for 'read': 'new' (default) or 'new+old'
-)
-```
-
-> **Strict Channel & Agent Rules:**
-> 1. **Channels must be explicitly registered:** The only valid `channel_id`s are those created via `action="create"`. Any invocation (`subscribe`, `write`, `read`) targeting an unregistered channel fails immediately with `CHANNEL_NOT_FOUND`.
-> 2. **Agent registration via subscription:** Subscribing an agent ID (`action="subscribe", subscribed=True`) to a registered channel inherently registers that agent for the channel.
-> 3. **Unsubscribed agents are blocked:** Any write or read by an unsubscribed agent ID fails immediately with `NOT_SUBSCRIBED`.
-
----
-
-### Methods & Specifications
-
-#### 0. Retrieve All Unread Messages (`action="inbox"`)
-Retrieves all unread messages across **all** channels the agent is currently subscribed to and marks them as delivered.
-* **Parameters:**
-  * `agent_id` (str, required): The agent requesting its inbox.
-
-* **JSON-RPC Invocation Example:**
-  ```json
-  {
-    "jsonrpc": "2.0",
-    "id": 1,
-    "method": "tools/call",
-    "params": {
-      "name": "channel",
-      "arguments": {
-        "action": "inbox",
-        "agent_id": "coder-1"
-      }
-    }
-  }
-  ```
-
----
-
-#### Piggybacking Example on Any Other Tool (e.g. `add_numbers`)
-An agent calls an unrelated calculation tool, passing its `agent_id`:
-```json
 {
-  "jsonrpc": "2.0",
-  "id": 2,
-  "method": "tools/call",
-  "params": {
-    "name": "add_numbers",
-    "arguments": {
-      "a": 15.0,
-      "b": 25.0,
-      "agent_id": "coder-1"
-    }
-  }
-}
-```
-
-**Response returned to the agent in the same turn:**
-```text
-40.0
-
---- [CHANNEL INBOX FOR 'coder-1'] (1 unread messages delivered) ---
-• [Channel: ops] from orchestrator (msg #4): Please deploy service v2
--------------------------------------------------------------------------
-```
-
-#### 1. Create / Register Channel (`action="create"`)
-Creates and registers a new valid communication channel.
-* **Parameters:**
-  * `channel_id` (str, required): Unique channel identifier.
-  * `description` (str, optional): Purpose or topic of the channel.
-  * `user_id` (str, optional): Creator agent or user identifier.
-
-* **JSON-RPC Invocation Example:**
-  ```json
-  {
-    "jsonrpc": "2.0",
-    "id": 1,
-    "method": "tools/call",
-    "params": {
-      "name": "channel",
-      "arguments": {
-        "action": "create",
-        "channel_id": "general",
-        "description": "Cross-agent project coordination"
+  "title": "Local Python MCP Server Architecture, Endpoints, and Operational Reference",
+  "applicability": "Apply to any human operator, external AI agent, or MCP client connecting to, starting, verifying, or calling tools on the local-mcp-server runtime hosted on Windows 11 and exposed through a Cloudflare Named Tunnel. For repository code-editing rules, defer to AGENTS.md.",
+  "definitions": {
+    "local_mcp_server": "A local FastMCP server running on Windows via Uvicorn at http://127.0.0 and exposed publicly at https://dpdns.org.",
+    "agent_id": "The unique string identifier representing a caller session (passed via the agent_id tool parameter, the user_id parameter on channel operations, or the X-Agent-ID HTTP header).",
+    "piggybacked_channel_inbox": "The server-side zero-polling delivery mechanism that inspects all channels subscribed to by the caller's agent_id during any tool invocation, extracts unread messages, appends them to the tool response, and advances the caller's read cursor in a single turn.",
+    "registered_channel": "A persistent SQLite-backed communication channel explicitly created via channel(action='create', channel_id='...'). Operations targeting unregistered channel_ids fail immediately with CHANNEL_NOT_FOUND."
+  },
+  "environment_and_network_topology": {
+    "applicability": "Connecting MCP clients, configuring local runtime environment variables, or inspecting Cloudflare Tunnel routing.",
+    "endpoints": {
+      "public_cloudflare_tunnel": {
+        "url": "https://dpdns.org",
+        "purpose": "Public internet streamable HTTP endpoint for remote MCP clients and AI agents (such as Claude Desktop, ChatGPT, or Cursor).",
+        "client_configuration_example": {
+          "mcpServers": {
+            "local-windows-mcp": {
+              "url": "https://dpdns.org"
+            }
+          }
+        }
+      },
+      "local_loopback": {
+        "url": "http://127.0.0",
+        "purpose": "Local streamable HTTP endpoint running directly on the host laptop."
+      }
+    },
+    "cloudflare_tunnel_specification": {
+      "public_hostname": "mcp.x9zk7mp4vn8w.dpdns.org",
+      "tunnel_id": "30664c83-c67c-4f6f-a8ad-3416fbd3802a",
+      "local_ingress_rule": "Routes traffic from mcp.x9zk7mp4vn8w.dpdns.org to http://127.0.0.1:8000.",
+      "config_file_path": "C:\\Users\\samue\\.cloudflared\\config.yml",
+      "credentials_file_path": "C:\\Users\\samue\\.cloudflared\\30664c83-c67c-4f6f-a8ad-3416fbd3802a.json"
+    },
+    "dotenv_configuration": {
+      "applicability": "Automatic runtime configuration loading from the repository .env file at server startup.",
+      "variables": {
+        "HOST": "127.0.0.1",
+        "PORT": "8000",
+        "CLOUDFLARE_TUNNEL_URL": "https://dpdns.org",
+        "CLOUDFLARE_TUNNEL_NAME": "30664c83-c67c-4f6f-a8ad-3416fbd3802a"
       }
     }
-  }
-  ```
-
----
-
-#### 2. List Channels (`action="list"`)
-Lists all registered channels, their subscriber counts, and message statistics.
-* **Parameters:**
-  * `user_id` (str, optional): Pass an agent ID to see `is_user_subscribed` status for each channel.
-
-* **JSON-RPC Invocation Example:**
-  ```json
-  {
-    "jsonrpc": "2.0",
-    "id": 2,
-    "method": "tools/call",
-    "params": {
-      "name": "channel",
-      "arguments": {
-        "action": "list"
-      }
+  },
+  "zero_polling_architecture": {
+    "applicability": "Every MCP tool invocation made by an external agent calling local-windows-mcp.",
+    "required_behavior": "Include the session's optional agent_id parameter (or X-Agent-ID HTTP header) on every tool call (such as ping, add_numbers, or channel). When agent_id is supplied, the server identifies the caller, extracts unread messages across all subscribed channels, appends them directly to the tool output, and advances the read cursors in a single turn. Use channel(action='inbox', agent_id='...') only when an agent must explicitly check for updates without executing another productive tool.",
+    "prohibited_behavior": "Do not execute repeated polling loops against channel(action='inbox') or channel(action='read') while performing other tool calls, because polling wastes LLM tokens, compute, and turns.",
+    "piggyback_invocation_example": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {
+          "name": "add_numbers",
+          "arguments": {
+            "a": 15.0,
+            "b": 25.0,
+            "agent_id": "coder-1"
+          }
+        }
+      },
+      "observed_response": "40.0\n\n--- [CHANNEL INBOX FOR 'coder-1'] (1 unread messages delivered) ---\n• [Channel: ops] from orchestrator (msg #4): Please deploy service v2\n-------------------------------------------------------------------------"
     }
-  }
-  ```
-
----
-
-#### 3. Subscribe / Register Agent (`action="subscribe"`)
-Subscribes an agent to a registered channel, which in itself registers the agent ID.
-* **Required Parameters:**
-  * `channel_id` (str): Must be an existing registered channel (fails otherwise).
-  * `user_id` (str): Agent or user identifier to subscribe/register.
-  * `subscribed` (bool): `True` to subscribe/join, `False` to unsubscribe/leave.
-
-* **JSON-RPC Invocation Example:**
-  ```json
-  {
-    "jsonrpc": "2.0",
-    "id": 3,
-    "method": "tools/call",
-    "params": {
-      "name": "channel",
-      "arguments": {
-        "action": "subscribe",
-        "channel_id": "general",
-        "user_id": "agent-1",
-        "subscribed": true
-      }
-    }
-  }
-  ```
-
----
-
-#### 4. Write Message (`action="write"`)
-Posts a message to a registered channel. Fails if the channel does not exist, or if the agent is not subscribed.
-* **Required Parameters:**
-  * `channel_id` (str): Registered channel identifier.
-  * `user_id` (str): Subscribed agent identifier.
-  * `message` (str): Message text string to broadcast.
-
-* **JSON-RPC Invocation Example:**
-  ```json
-  {
-    "jsonrpc": "2.0",
-    "id": 4,
-    "method": "tools/call",
-    "params": {
-      "name": "channel",
-      "arguments": {
-        "action": "write",
-        "channel_id": "general",
-        "user_id": "agent-1",
-        "message": "Task complete: Analyzed system logs. Ready for review."
-      }
-    }
-  }
-  ```
-
----
-
-#### 5. Read Messages (`action="read"`)
-Retrieves messages from a registered channel. Fails if the channel does not exist, or if the agent is not subscribed.
-* **Required Parameters:**
-  * `channel_id` (str): Registered channel identifier.
-  * `user_id` (str): Subscribed agent identifier.
-
-* **Optional Parameters:**
-  * `i` (int): Maximum number of messages to retrieve (default `10`).
-  * `flag` (str):
-    * `"new"` *(default)*: Retrieves only new, unread messages since last read and advances cursor.
-    * `"new+old"`: Retrieves the latest `i` messages including past history.
-
-* **JSON-RPC Invocation Example:**
-  ```json
-  {
-    "jsonrpc": "2.0",
-    "id": 5,
-    "method": "tools/call",
-    "params": {
-      "name": "channel",
-      "arguments": {
-        "action": "read",
-        "channel_id": "general",
-        "user_id": "agent-2",
-        "i": 5,
-        "flag": "new"
-      }
-    }
-  }
-  ```
-
-* **Sample Response:**
-  ```json
-  {
-    "status": "success",
-    "action": "read",
-    "channel_id": "general",
-    "user_id": "agent-2",
-    "mode": "new",
-    "count": 1,
-    "remaining_unread": 0,
-    "messages": [
+  },
+  "cross_agent_communication_channels": {
+    "applicability": "Coordinating tasks, status updates, and messages across different ChatGPT sessions (browser or desktop) or autonomous agents using the persistent SQLite-backed channel tool.",
+    "strict_prerequisites_and_failure_conditions": [
       {
-        "message_id": 1,
-        "sender": "agent-1",
-        "message": "Task complete: Analyzed system logs. Ready for review.",
-        "created_at": "2026-11-18T20:10:00.000000+00:00",
-        "is_new": true
+        "condition": "Channel registration prerequisite",
+        "required_behavior": "Only use channel_ids that have been explicitly created via channel(action='create'). Any subscribe, write, or read call targeting an unregistered channel_id fails immediately with CHANNEL_NOT_FOUND."
+      },
+      {
+        "condition": "Agent subscription prerequisite",
+        "required_behavior": "Register an agent ID for a channel by invoking channel(action='subscribe', channel_id='...', user_id='...', subscribed=true) on an existing registered channel. Any write or read call made by an unsubscribed agent ID fails immediately with NOT_SUBSCRIBED."
+      }
+    ],
+    "channel_actions": [
+      {
+        "action": "inbox",
+        "applicability": "Retrieving all unread messages across all channels to which the caller agent_id is currently subscribed and marking them as delivered.",
+        "parameters": {
+          "agent_id": "Required string identifying the agent requesting its inbox."
+        }
+      },
+      {
+        "action": "create",
+        "applicability": "Creating and registering a new valid communication channel.",
+        "parameters": {
+          "channel_id": "Required unique string identifier for the channel.",
+          "description": "Optional string describing the purpose or topic of the channel.",
+          "user_id": "Optional string identifying the creator agent or user."
+        }
+      },
+      {
+        "action": "list",
+        "applicability": "Listing all registered channels, their subscriber counts, and message statistics.",
+        "parameters": {
+          "user_id": "Optional string agent ID; when provided, the response includes is_user_subscribed status for each listed channel."
+        }
+      },
+      {
+        "action": "subscribe",
+        "applicability": "Subscribing an agent to a registered channel (which inherently registers the agent ID) or unsubscribing an agent from that channel.",
+        "parameters": {
+          "channel_id": "Required string matching an existing registered channel (fails with CHANNEL_NOT_FOUND otherwise).",
+          "user_id": "Required string agent or user identifier to subscribe or unsubscribe.",
+          "subscribed": "Required boolean specifying subscription state: pass true to subscribe and join the channel, or pass false to unsubscribe and leave the channel."
+        }
+      },
+      {
+        "action": "write",
+        "applicability": "Posting a message string to a registered channel after confirming the sender agent is subscribed.",
+        "parameters": {
+          "channel_id": "Required string identifying the registered channel.",
+          "user_id": "Required string identifying the subscribed sender agent.",
+          "message": "Required string containing the message text to broadcast."
+        }
+      },
+      {
+        "action": "read",
+        "applicability": "Retrieving messages from a registered channel after confirming the caller agent is subscribed.",
+        "parameters": {
+          "channel_id": "Required string identifying the registered channel.",
+          "user_id": "Required string identifying the subscribed reader agent.",
+          "i": "Optional integer specifying maximum number of messages to retrieve (defaults to 10).",
+          "flag": "Optional string retrieval mode: pass 'new' (default) to retrieve only unread messages since the last read and advance the read cursor, or pass 'new+old' to retrieve the latest i messages including past history."
+        }
       }
     ]
-  }
-  ```
-
----
-
-## Connecting MCP Clients & Agents
-
-To connect an AI agent or client (such as Claude Desktop, ChatGPT, or Cursor), configure the public endpoint:
-
-### Client Configuration (`mcpServers`)
-```json
-{
-  "mcpServers": {
-    "local-windows-mcp": {
-      "url": "https://mcp.x9zk7mp4vn8w.dpdns.org/mcp"
+  },
+  "startup_and_verification_procedures": {
+    "one_click_boot": {
+      "applicability": "Starting the local server, Cloudflare Tunnel, and status verification dashboard from Windows Command Prompt or PowerShell.",
+      "command": ".\\start_server.bat",
+      "required_behavior": "Execute start_server.bat (or boot.bat) to print live progress and the Salient Status Dashboard to the interactive terminal, launch cloudflared.exe, open a companion console window for uvicorn with --reload enabled, execute verify_server.py to test and display all 8 salient statuses (TCP sockets, local and remote MCP handshakes, tool listing, tool execution, and channel operations), and pause with 'Press any key to exit...' so statuses remain visible for inspection."
+    },
+    "standalone_verification": {
+      "applicability": "Verifying the running server and endpoints at any time without restarting processes.",
+      "command": ".\\.venv\\Scripts\\python.exe verify_server.py",
+      "outcome_verification": "Verification succeeds when verify_server.py reports passing results across all 8 salient status checks for both local loopback and public Cloudflare Tunnel endpoints."
     }
+  },
+  "governance_cross_reference": {
+    "applicability": "Anyone intending to modify source files, add tools, or change dependencies in this repository.",
+    "required_behavior": "Consult AGENTS.md for all architectural invariants, hardware memory guardrails, security boundaries, and pre-commit verification rules before editing repository code."
   }
 }
-```
-
----
-
-## One-Click Boot & Salient Status Verification
-
-Double-click or run **`start_server.bat`** (or `boot.bat`) from Command Prompt or PowerShell:
-
-```cmd
-.\start_server.bat
-```
-
-### What Happens in the Terminal:
-1. **Interactive Terminal Output:** Live progress and the **Salient Status Dashboard** print directly to your terminal screen.
-2. **Auto-Boot:** Automatically launches `cloudflared.exe` and opens a companion console window for `uvicorn` with hot-reloading (`--reload`) enabled.
-3. **Salient Status Verifier:** It runs `verify_server.py` to test and display the **8 salient statuses** (including TCP sockets, local & remote MCP handshakes, tool listing, execution, and channel operations).
-4. **Persistent Display:** The launcher ends with a pause (`Press any key to exit...`) so you can review all statuses before dismissing the window.
-
----
-
-## Standalone Verification
-
-You can verify the running server and endpoints anytime without restarting:
-
-```powershell
-.\.venv\Scripts\python.exe verify_server.py
-```
-
----
-
-## Configuration (`.env`)
-
-Settings are loaded automatically from `.env`:
-
-```env
-HOST=127.0.0.1
-PORT=8000
-CLOUDFLARE_TUNNEL_URL=https://mcp.x9zk7mp4vn8w.dpdns.org/mcp
-CLOUDFLARE_TUNNEL_NAME=30664c83-c67c-4f6f-a8ad-3416fbd3802a
-```
-
----
-
-## Rules for AI Agents Editing This Repo
-1. **Keep tools in `server.py` (or import them into `server.py`)** using the `@mcp.tool` decorator with clear type hints and docstrings.
-2. **Do not remove `app = mcp.http_app(stateless_http=True)`** at the bottom of `server.py`—Uvicorn requires `app` to serve the `/mcp` endpoint.
-3. **Update `requirements.txt`** whenever you import a new third-party Python package.
-4. **Keep tools lightweight** (avoid launching heavy headless browsers unless explicitly requested).
