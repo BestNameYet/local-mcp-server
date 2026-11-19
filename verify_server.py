@@ -1,3 +1,9 @@
+import socket as _sock
+_orig_getaddrinfo = _sock.getaddrinfo
+def _ipv4_only_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    return _orig_getaddrinfo(host, port, _sock.AF_INET, type, proto, flags)
+_sock.getaddrinfo = _ipv4_only_getaddrinfo
+
 """
 verify_server.py — Salient Status & Health Verification Suite for MCP Server.
 
@@ -71,12 +77,7 @@ def wait_for_port(host: str, port: int, timeout: float = 15.0) -> tuple[bool, fl
 
 
 def send_mcp_request(url: str, payload: dict[str, Any], timeout: float = 12.0) -> tuple[dict[str, Any], float]:
-    """Send a JSON-RPC request to the MCP endpoint and parse response.
-    
-    Returns (response_dict, latency_ms).
-    Handles both direct JSON responses and Server-Sent Events (text/event-stream)
-    emitted by FastMCP in Streamable HTTP mode.
-    """
+    """Send a JSON-RPC request to the MCP endpoint and parse response."""
     body = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
         url,
@@ -92,23 +93,28 @@ def send_mcp_request(url: str, payload: dict[str, Any], timeout: float = 12.0) -
     t0 = time.time()
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         content_type = resp.headers.get("Content-Type", "")
-        raw_body = resp.read().decode("utf-8", errors="replace")
-        latency = (time.time() - t0) * 1000.0
-
         if "text/event-stream" in content_type:
             last_json = None
-            for line in raw_body.splitlines():
-                stripped = line.strip()
+            while True:
+                raw_line = resp.readline()
+                if not raw_line:
+                    break
+                stripped = raw_line.decode("utf-8", errors="replace").strip()
                 if stripped.startswith("data:"):
                     data_str = stripped[5:].strip()
                     if data_str:
                         try:
                             last_json = json.loads(data_str)
+                            break
                         except json.JSONDecodeError:
                             continue
+            latency = (time.time() - t0) * 1000.0
             if last_json is not None:
                 return last_json, latency
+            return {}, latency
 
+        raw_body = resp.read().decode("utf-8", errors="replace")
+        latency = (time.time() - t0) * 1000.0
         return json.loads(raw_body), latency
 
 

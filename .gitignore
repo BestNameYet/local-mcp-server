@@ -233,3 +233,14 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local VM disk images (keep VM definitions and scripts tracked)
+/vm/disks/*.vhd
+/vm/disks/*.vhdx
+/vm/disks/*.vdi
+/vm/disks/*.vmdk
+/vm/disks/*.qcow
+/vm/disks/*.qcow2
+/vm/disks/*.raw
+/vm/disks/*.img
+repos/
