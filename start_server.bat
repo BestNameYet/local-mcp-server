@@ -26,10 +26,18 @@ if exist ".env" (
     )
 )
 
+if exist "%~dp0server_config.json" (
+    for /f "usebackq tokens=1* delims==" %%a in (`"%PYTHON_EXE%" -c "import json, pathlib; d = json.loads(pathlib.Path(r'%~dp0server_config.json').read_text(encoding='utf-8')); a = d.get('aliases') if isinstance(d.get('aliases'), dict) else {k: v for k, v in d.items() if k != 'header' and not isinstance(v, dict)}; print('CFG_HOST=' + str(a.get('LOCAL_BIND_HOST', ''))); print('CFG_PORT=' + str(a.get('LOCAL_BIND_PORT', ''))); print('CFG_TUNNEL_URL=' + str(a.get('PUBLIC_MCP_ENDPOINT', ''))); print('CFG_TUNNEL_NAME=' + str(a.get('CLOUDFLARE_TUNNEL_ID', '')))" 2^>nul`) do (
+        set "%%a=%%b"
+    )
+)
+
+if "%HOST%"=="" if not "!CFG_HOST!"=="" set "HOST=!CFG_HOST!"
 if "%HOST%"=="" set HOST=127.0.0.1
+if "%PORT%"=="" if not "!CFG_PORT!"=="" set "PORT=!CFG_PORT!"
 if "%PORT%"=="" set PORT=8000
-if "%CLOUDFLARE_TUNNEL_URL%"=="" set CLOUDFLARE_TUNNEL_URL=https://mcp.x9zk7mp4vn8w.dpdns.org/mcp
-if "%CLOUDFLARE_TUNNEL_NAME%"=="" set CLOUDFLARE_TUNNEL_NAME=30664c83-c67c-4f6f-a8ad-3416fbd3802a
+if "%CLOUDFLARE_TUNNEL_URL%"=="" if not "!CFG_TUNNEL_URL!"=="" set "CLOUDFLARE_TUNNEL_URL=!CFG_TUNNEL_URL!"
+if "%CLOUDFLARE_TUNNEL_NAME%"=="" if not "!CFG_TUNNEL_NAME!"=="" set "CLOUDFLARE_TUNNEL_NAME=!CFG_TUNNEL_NAME!"
 
 :: -----------------------------------------------------------------------------
 :: 2. Identify & Verify Python Runtime

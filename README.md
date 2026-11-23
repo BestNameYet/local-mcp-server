@@ -2,7 +2,7 @@
   "title": "Local Python MCP Server Architecture, Endpoints, and Operational Reference",
   "applicability": "Apply to any human operator, external AI agent, or MCP client connecting to, starting, verifying, or calling tools on the local-mcp-server runtime hosted in WSL2 Ubuntu and exposed through a Cloudflare Named Tunnel. All alias tokens (such as PUBLIC_MCP_ENDPOINT and WSL_REPO_DIR) resolve to the values defined in server_config.json. For repository code-editing rules, defer to AGENTS.md.",
   "definitions": {
-    "server_config_alias": "A symbolic key defined under 'aliases' in server_config.json that maps to a fixed network endpoint, tunnel identifier, WSL2 filesystem path, or launcher script.",
+    "server_config_alias": "A top-level symbolic key in server_config.json (with metadata under 'header') that maps to a fixed network endpoint, tunnel identifier, WSL2 filesystem path, or launcher script.",
     "local_mcp_server": "A local FastMCP server running inside WSL2 Ubuntu via Uvicorn at LOCAL_MCP_ENDPOINT and exposed publicly at PUBLIC_MCP_ENDPOINT.",
     "agent_id": "The unique string identifier representing a caller session (passed via the agent_id tool parameter, the user_id parameter on channel operations, or the X-Agent-ID HTTP header).",
     "piggybacked_channel_inbox": "The server-side zero-polling delivery mechanism that inspects all channels subscribed to by the caller's agent_id during any tool invocation, extracts unread messages, appends them to the tool response, and advances the caller's read cursor in a single turn.",
@@ -18,7 +18,7 @@
         "client_configuration_template": {
           "mcpServers": {
             "local-windows-mcp": {
-              "url": "<resolve aliases.PUBLIC_MCP_ENDPOINT from server_config.json>"
+              "url": "<resolve PUBLIC_MCP_ENDPOINT from server_config.json>"
             }
           }
         }

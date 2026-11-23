@@ -118,6 +118,21 @@ def send_mcp_request(url: str, payload: dict[str, Any], timeout: float = 12.0) -
         return json.loads(raw_body), latency
 
 
+def load_server_config(config_path: Path) -> dict:
+    """Load flattened config entries from server_config.json if present."""
+    if not config_path.exists():
+        return {}
+    try:
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return {}
+        if isinstance(data.get("aliases"), dict):
+            return data["aliases"]
+        return {k: v for k, v in data.items() if k != "header" and not isinstance(v, dict)}
+    except Exception:
+        return {}
+
+
 def run_salient_checks(local_url: str, tunnel_url: Optional[str], host: str, port: int, timeout: float) -> list[CheckResult]:
     """Execute all salient checks and return structured results."""
     results: list[CheckResult] = []
@@ -443,16 +458,23 @@ def main() -> int:
 
     repo_root = Path(__file__).resolve().parent
     load_env_file(repo_root / ".env")
+    config_aliases = load_server_config(repo_root / "server_config.json")
 
-    local_url = f"http://{args.host}:{args.port}/mcp"
-    tunnel_url = args.tunnel_url or os.getenv("CLOUDFLARE_TUNNEL_URL")
+    host = args.host or os.getenv("HOST") or config_aliases.get("LOCAL_BIND_HOST") or "127.0.0.1"
+    port = args.port or int(os.getenv("PORT") or config_aliases.get("LOCAL_BIND_PORT") or "8000")
+    local_url = config_aliases.get("LOCAL_MCP_ENDPOINT") or f"http://{host}:{port}/mcp"
+    tunnel_url = (
+        args.tunnel_url
+        or os.getenv("CLOUDFLARE_TUNNEL_URL")
+        or config_aliases.get("PUBLIC_MCP_ENDPOINT")
+    )
 
     if tunnel_url:
         tunnel_url = tunnel_url.strip()
         if not tunnel_url.endswith("/mcp"):
             tunnel_url = tunnel_url.rstrip("/") + "/mcp"
 
-    results = run_salient_checks(local_url, tunnel_url, args.host, args.port, args.timeout)
+    results = run_salient_checks(local_url, tunnel_url, host, port, args.timeout)
     success = print_summary_table(results, tunnel_url)
 
     return 0 if success else 1
