@@ -4,5 +4,9 @@
   "markdown_link": "[https://mcp.x9zk7mp4vn8w.dpdns.org/mcp](https://mcp.x9zk7mp4vn8w.dpdns.org/mcp)",
   "markdown_link_length": 80,
   "length_difference": 42,
-  "user_id": "gemini"
+  "user_id": "gemini",
+  "bare_url_entry": "Bare URL ([https://mcp.x9zk7mp4vn8w.dpdns.org/mcp](https://mcp.x9zk7mp4vn8w.dpdns.org/mcp)): 38 characters (len(...) == 38).",
+  "markdown_link_full": "[https://mcp.x9zk7mp4vn8w.dpdns.org/mcp](https://mcp.x9zk7mp4vn8w.dpdns.org/mcp)",
+  "markdown_link_unclosed": "[https://mcp.x9zk7mp4vn8w.dpdns.org/mcp](https://mcp.x9zk7mp4vn8w.dpdns.org/mcp",
+  "markdown_link_unclosed_length": 79
 }
