@@ -11,9 +11,6 @@ from tools.channel import (
 from tools.terminal import execute_bash
 
 mcp = FastMCP("LocalWindowsMCP")
-_BRIDGE_TOKEN = "CHANGE_ME_TO_A_RANDOM_SECRET_123"
-
-
 @mcp.tool
 def ping(agent_id: Optional[str] = None) -> str:
     """Health check tool. If agent_id is supplied, unread channel messages are piggybacked."""
@@ -68,8 +65,6 @@ async def bridge_exec(request: Request):
     host = request.headers.get("host", "")
     if not (host.startswith("localhost:") or host.startswith("127.0.0.1:")):
         return JSONResponse({"detail": "Local loopback only"}, status_code=403)
-    if request.headers.get("x-bridge-token") != _BRIDGE_TOKEN:
-        return JSONResponse({"detail": "Invalid bridge token"}, status_code=401)
     body = await request.json()
     raw = body.get("code", "")
     lang = body.get("lang", "bash").lower()

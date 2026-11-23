@@ -126,8 +126,6 @@ def load_server_config(config_path: Path) -> dict:
         data = json.loads(config_path.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
             return {}
-        if isinstance(data.get("aliases"), dict):
-            return data["aliases"]
         return {k: v for k, v in data.items() if k != "header" and not isinstance(v, dict)}
     except Exception:
         return {}

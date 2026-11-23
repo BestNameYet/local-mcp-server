@@ -87,25 +87,13 @@ def _now_iso() -> str:
 
 
 def get_caller_agent_id(explicit_agent_id: Optional[str] = None) -> Optional[str]:
-    """Resolve the caller's agent ID from explicit tool parameter or HTTP headers.
+    """Resolve the caller's agent ID strictly from an explicit ID parameter.
 
-    Checks:
-    1. Explicit 'agent_id' passed in tool parameters.
-    2. 'X-Agent-ID' or 'Agent-ID' header on the active HTTP request (via FastMCP context).
+    Does not fall back to shared HTTP headers or default identities; when no explicit
+    ID is supplied, returns None so no inbound routing or ID-gated action occurs.
     """
     if explicit_agent_id and explicit_agent_id.strip():
         return explicit_agent_id.strip()
-
-    try:
-        from fastmcp.server.http import _current_http_request
-        req = _current_http_request.get()
-        if req is not None:
-            header_val = req.headers.get("x-agent-id") or req.headers.get("agent-id")
-            if header_val and header_val.strip():
-                return header_val.strip()
-    except Exception:
-        pass
-
     return None
 
 
@@ -656,13 +644,19 @@ def channel(
             if not effective_user:
                 return json.dumps({
                     "status": "error",
-                    "error_code": "INVALID_ARGUMENT",
-                    "message": "Action 'inbox' requires 'agent_id' (or 'user_id' or 'X-Agent-ID' header)."
+                    "error_code": "AGENT_ID_REQUIRED",
+                    "message": "Action 'inbox' requires an explicit 'agent_id' or 'user_id' and cannot run without one."
                 }, indent=2)
             res = handle_inbox(user_id=effective_user, mark_as_read=True)
             return json.dumps(res, indent=2)
 
         elif clean_action in ("create", "register"):
+            if not effective_user:
+                return json.dumps({
+                    "status": "error",
+                    "error_code": "AGENT_ID_REQUIRED",
+                    "message": "Action 'create' requires an explicit 'agent_id' or 'user_id' and cannot run without one."
+                }, indent=2)
             if not channel_id:
                 return json.dumps({
                     "status": "error",
@@ -673,11 +667,23 @@ def channel(
             return json.dumps(res, indent=2)
 
         elif clean_action in ("list", "list_channels"):
+            if not effective_user:
+                return json.dumps({
+                    "status": "error",
+                    "error_code": "AGENT_ID_REQUIRED",
+                    "message": "Action 'list' requires an explicit 'agent_id' or 'user_id' and cannot run without one."
+                }, indent=2)
             res = handle_list(user_id=effective_user)
             return json.dumps(res, indent=2)
 
         elif clean_action == "subscribe":
-            if not channel_id or not effective_user or subscribed is None:
+            if not effective_user:
+                return json.dumps({
+                    "status": "error",
+                    "error_code": "AGENT_ID_REQUIRED",
+                    "message": "Action 'subscribe' requires an explicit 'agent_id' or 'user_id' and cannot run without one."
+                }, indent=2)
+            if not channel_id or subscribed is None:
                 return json.dumps({
                     "status": "error",
                     "error_code": "INVALID_ARGUMENT",
@@ -687,7 +693,13 @@ def channel(
             return json.dumps(res, indent=2)
 
         elif clean_action == "write":
-            if not channel_id or not effective_user or message is None:
+            if not effective_user:
+                return json.dumps({
+                    "status": "error",
+                    "error_code": "AGENT_ID_REQUIRED",
+                    "message": "Action 'write' requires an explicit 'agent_id' or 'user_id' and cannot run without one."
+                }, indent=2)
+            if not channel_id or message is None:
                 return json.dumps({
                     "status": "error",
                     "error_code": "INVALID_ARGUMENT",
@@ -697,7 +709,13 @@ def channel(
             return json.dumps(res, indent=2)
 
         elif clean_action == "read":
-            if not channel_id or not effective_user:
+            if not effective_user:
+                return json.dumps({
+                    "status": "error",
+                    "error_code": "AGENT_ID_REQUIRED",
+                    "message": "Action 'read' requires an explicit 'agent_id' or 'user_id' and cannot run without one."
+                }, indent=2)
+            if not channel_id:
                 return json.dumps({
                     "status": "error",
                     "error_code": "INVALID_ARGUMENT",

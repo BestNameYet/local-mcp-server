@@ -27,7 +27,7 @@ if exist ".env" (
 )
 
 if exist "%~dp0server_config.json" (
-    for /f "usebackq tokens=1* delims==" %%a in (`"%PYTHON_EXE%" -c "import json, pathlib; d = json.loads(pathlib.Path(r'%~dp0server_config.json').read_text(encoding='utf-8')); a = d.get('aliases') if isinstance(d.get('aliases'), dict) else {k: v for k, v in d.items() if k != 'header' and not isinstance(v, dict)}; print('CFG_HOST=' + str(a.get('LOCAL_BIND_HOST', ''))); print('CFG_PORT=' + str(a.get('LOCAL_BIND_PORT', ''))); print('CFG_TUNNEL_URL=' + str(a.get('PUBLIC_MCP_ENDPOINT', ''))); print('CFG_TUNNEL_NAME=' + str(a.get('CLOUDFLARE_TUNNEL_ID', '')))" 2^>nul`) do (
+    for /f "usebackq tokens=1* delims==" %%a in (`"%PYTHON_EXE%" -c "import json, pathlib; d = json.loads(pathlib.Path(r'%~dp0server_config.json').read_text(encoding='utf-8')); a = {k: v for k, v in d.items() if k != 'header' and not isinstance(v, dict)}; print('CFG_HOST=' + str(a.get('LOCAL_BIND_HOST', ''))); print('CFG_PORT=' + str(a.get('LOCAL_BIND_PORT', ''))); print('CFG_TUNNEL_URL=' + str(a.get('PUBLIC_MCP_ENDPOINT', ''))); print('CFG_TUNNEL_NAME=' + str(a.get('CLOUDFLARE_TUNNEL_ID', '')))" 2^>nul`) do (
         set "%%a=%%b"
     )
 )
