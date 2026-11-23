@@ -1,9 +1,12 @@
 {
+  "secret_code": 1078035886078343152904286463006386790857915650551435895377195026550797784383889047779262042898091997061122965145188960107621939691125390879392209519303906645715621212974,
+  "version": "1.1.0",
+  "unix_secs": 1795453329,
   "title": "Local Python MCP Server Fixed Addresses, Paths, and Runtime Aliases",
   "applicability": "Single source of truth for all fixed network endpoints, Cloudflare Tunnel identifiers, WSL2 filesystem paths, and launcher commands referenced by README.md, AGENTS.md, and operational scripts.",
   "aliases": {
-    "PUBLIC_MCP_ENDPOINT": "https://dpdns.org",
-    "LOCAL_MCP_ENDPOINT": "http://127.0.0",
+    "PUBLIC_MCP_ENDPOINT": "",
+    "LOCAL_MCP_ENDPOINT": "http://127.0.0.1:8000/mcp",
     "LOCAL_BIND_HOST": "127.0.0.1",
     "LOCAL_BIND_PORT": 8000,
     "CLOUDFLARE_HOSTNAME": "mcp.x9zk7mp4vn8w.dpdns.org",
@@ -13,6 +16,9 @@
     "WSL_UVICORN_LOG": "/tmp/uvicorn_mcp.log",
     "UVICORN_ASGI_APP": "server:app",
     "WINDOWS_BOOT_SCRIPT": "C:\\Users\\samue\\Desktop\\start_salient_mcp.bat",
-    "VERIFY_SCRIPT": "/home/samue/local-mcp-server/verify_server.py"
+    "VERIFY_SCRIPT": "/home/samue/local-mcp-server/verify_server.py",
+    "WSL_BOOT_SCRIPT": "/home/samue/local-mcp-server/boot.bat",
+    "WSL_START_SCRIPT": "/home/samue/local-mcp-server/start_server.bat",
+    "CLOUDFLARE_TUNNEL_TOKEN_ENV": "CLOUDFLARE_TUNNEL_TOKEN"
   }
 }
